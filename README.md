@@ -1,3 +1,2 @@
-# 4090-TI
-Inpainting\n
+# 4090-TI Inpainting
 Region Filling and Object Removal by Exemplar-Based Image Inpainting
