@@ -111,6 +111,76 @@ for i in range(len(front_fill[0])):
 curr_max = np.argmax(ff_priority)
 curr_idx = (front_fill[1][curr_max],front_fill[0][curr_max])
 
+
+# Get the data in patch Psi
+def get_patch_data(psi, image):
+  startX = psi[0][0]
+  endX = psi[1][0]
+  startY = psi[0][1]
+  endY = psi[1][1]
+  return image[startY:endY+1, startX:endX+1]
+
+
+# Compute the sum of squared differences (SSD) of the already filled pixels in
+# the two patches psiP and psiQ
+def SSD(psiP, psiQ, rgbimage, source_mask):
+  channels = rgbimage.shape[2]
+  psiP_data = get_patch_data(psiP, rgbimage)
+  psiQ_data = get_patch_data(psiQ, rgbimage)
+  ssd = 0
+  for i in range(channels):
+    difference = psiP_data[:,:,i] - psiQ_data[:,:,i]
+    ssd += np.sum(np.square(difference[source_mask]))
+  return ssd
+
+# Get the patch data of psi Q
+def get_patch_q(q, mask, window_size):
+  size = window_size//2
+  startX = q[0] - size
+  endX = q[0] + size
+  startY = q[1] - size
+  endY = q[1] + size
+  mask_xy = [np.repeat(np.arange(startY, endY+1),window_size), np.tile(np.arange(startX, endX+1), window_size)]
+  if mask[mask_xy].sum() == window_size*window_size*255:
+    return np.array([[startX, startY],[endX, endY]])
+  else: 
+    return None
+
+# Find the best match patch psi q hat
+def best_match_patch(rgbimage, mask, psiP, window_size):
+  h,w,_ = rgbimage.shape
+  size = window_size//2
+  ssd = []
+  psiQ_hat = []
+  psiP_mask_data = get_patch_data(psiP, mask)
+  source_index = np.argwhere(psiP_mask_data != 0)
+  source_mask = [source_index[:, 0],source_index[:,1]]
+  for i in range(size, w-size-1):
+    for j in range(size, h-size-1):
+      psiQ = get_patch_q((i, j), mask, window_size)
+      if type(psiQ) == np.ndarray:
+        ssd.append(SSD(psiP, psiQ, rgbimage, source_mask))
+        psiQ_hat.append(psiQ)
+  index = np.argmin(ssd)
+  return psiQ_hat[index]
+
+# Fill the empty pixels in sai P with the value of corresponding pixels in sai q hat.
+def fill_image(RGBimage, mask, psiP, psiQ_hat):
+  psiP_mask_data = get_patch_data(psiP, mask)
+  target_index = np.argwhere(psiP_mask_data == 0)
+  target_mask = [target_index[:, 0],target_index[:,1]]
+  print(target_mask)
+  channels = RGBimage.shape[2]
+  psiP_data = get_patch_data(psiP, RGBimage)
+  psiQ_hat_data = get_patch_data(psiQ_hat, RGBimage)
+  for i in range(channels):
+    psiP_data[:,:,i][target_mask] = psiQ_hat_data[:,:,i][target_mask]
+  psiP_mask_data[target_mask] = 255
+
+  return RGBimage, mask
+
+
+
 #Update confidence in intersection aera of sai P_hat and omega with C(P_hat)
 def update_confidence(confidence, saiP_hat, P_hat):
   px,py = P_hat
