@@ -23,13 +23,14 @@ from skimage import feature
 # Get source region and target region and init confidence
 def load_image(image1, image2):
     image = cv2.imread(image1)
+    RGBimage = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     mask = cv2.imread(image2)
     mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
     confidence = (mask == 0).astype('float')
-    return image, mask, confidence
+    return image, RGBimage, mask, confidence
 
-image, mask, confidence = load_image("/content/drive/My Drive/CSC420/Project/img.png","/content/drive/My Drive/CSC420/Project/mask.png")
+image, RGBimage, mask, confidence = load_image("/content/drive/My Drive/CSC420/Project/img.png","/content/drive/My Drive/CSC420/Project/mask.png")
 
 # Use edge detection to get front fill Delta Omega from mask image
 def get_front_fill(mask):
