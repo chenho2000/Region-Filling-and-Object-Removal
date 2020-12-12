@@ -88,7 +88,6 @@ def get_patch_data(psi, image):
   endY = psi[1][1]
   return image[startY:endY+1, startX:endX+1]
 
-
 # Compute the sum of squared differences (SSD) of the already filled pixels in
 # the two patches psiP and psiQ
 def SSD(psiP, psiQ, rgbimage, source_mask):
@@ -145,8 +144,6 @@ def fill_image(RGBimage, mask, psiP, psiQ_hat):
   psiP_mask_data[target_mask] = 255
 
   return RGBimage, mask
-
-
 
 # Update confidence in intersection aera of sai P_hat and omega with C(P_hat)
 def update_confidence(confidence, saiP_hat, P_hat):
