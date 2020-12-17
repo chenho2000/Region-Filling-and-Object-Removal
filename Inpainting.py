@@ -212,4 +212,6 @@ def inpainting(image1, image2, window_size):
 
 
 if __name__ == "__main__":
-    inpainting('mur.png', 'masque_mur.png', (11,11))
+    image1 = "air.png"
+    image2 = "air_mask.png"
+    inpainting(image1, image2, (7,7))
