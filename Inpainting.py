@@ -11,7 +11,7 @@ def load_image(image1, image2):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     mask = cv2.imread(image2)
     mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-    confidence = (mask == 0).astype('float')
+    confidence = (mask == 255).astype('float')
     return image, RGBimage, mask, confidence
 
 # Use edge detection to get front fill Delta Omega from mask image
@@ -23,27 +23,25 @@ def get_front_fill(mask):
 # Use point axis and window_size to get the range of patch psi P(2X2 array)
 def patch(image,point, window_size):
   iy,ix = image.shape
-  x, y = point
   size = window_size[0]//2
-  x_1 = max(x - size, 0)
-  y_1 = max(y - size, 0)
-  x_2 = min(x + size, ix - 1)
-  y_2 = min(y + size, iy - 1)
-  return [(x_1, y_1),(x_2, y_2)]
+  x, y = point
+  patch_range = [(max(x - size, 0), max(y - size, 0)),
+                 (min(x + size, ix - 1), min(y + size, iy - 1))]
+  patch_size = (patch_range[1][1]-patch_range[0][1]+1, patch_range[1][0]-patch_range[0][0]+1)
+  return patch_range, patch_size
 
 # compute point p confidence
 def compute_confidence(confidence, point, mask, window_size):
-  psiP = patch(mask, point, window_size)
+  psiP,_ = patch(mask, point, window_size)
   x_1, y_1 = psiP[0]
   x_2, y_2 = psiP[1]
-  area = (x_2-x_1) * (y_2-y_1)
+  area = (x_2-x_1+1) * (y_2-y_1+1)
   t_sum = 0
-  for i in range(x_1, x_2 + 1):
-      for j in range(y_1, y_2 + 1):
-          if mask[j, i] == 0:
-              t_sum += confidence[j, i]
-  confidence[point[1],point[0]] = t_sum / area
-  return confidence,t_sum / area
+  for i in range(y_1, y_2 + 1):
+      for j in range(x_1, x_2 + 1):
+          if mask[i, j] != 0:
+              t_sum += confidence[i, j]
+  return t_sum / area
 
 # Get the gradient of isophote around the patch
 def compute_gradient(image,mask):
@@ -88,6 +86,7 @@ def get_patch_data(psi, image):
   endY = psi[1][1]
   return image[startY:endY+1, startX:endX+1]
 
+
 # Compute the sum of squared differences (SSD) of the already filled pixels in
 # the two patches psiP and psiQ
 def SSD(psiP, psiQ, rgbimage, source_mask):
@@ -101,30 +100,46 @@ def SSD(psiP, psiQ, rgbimage, source_mask):
   return ssd
 
 # Get the patch data of psi Q
-def get_patch_q(q, mask, window_size):
-  size = window_size[0]//2
-  startX = q[0] - size
-  endX = q[0] + size
-  startY = q[1] - size
-  endY = q[1] + size
-  mask_xy = [np.repeat(np.arange(startY, endY+1),window_size[0]), np.tile(np.arange(startX, endX+1), window_size[0])]
-  if mask[mask_xy].sum() == window_size[0]*window_size[0]*255:
+def get_patch_q(q, mask, patch_size):
+  ysize = patch_size[0]//2
+  xsize = patch_size[1]//2
+  startX = q[0] - xsize
+  startY = q[1] - ysize
+  if patch_size[1] %2 != 0:
+    endX = q[0] + xsize
+  else:
+    endX = q[0] + xsize - 1
+  if patch_size[0] %2 != 0:
+    endY = q[1] + ysize
+  else:
+    endY = q[1] + ysize - 1
+  mask_xy = [np.repeat(np.arange(startY, endY+1),patch_size[1]), np.tile(np.arange(startX, endX+1), patch_size[0])]
+  if mask[mask_xy].sum() == patch_size[0]*patch_size[1]*0:
     return np.array([[startX, startY],[endX, endY]])
   else: 
     return None
 
 # Find the best match patch psi q hat
-def best_match_patch(rgbimage, mask, psiP, window_size):
+def best_match_patch(rgbimage, mask, psiP, patch_size):
   h,w,_ = rgbimage.shape
-  size = window_size[0]//2
+  ysize = patch_size[0]//2
+  xsize = patch_size[1]//2
   ssd = []
   psiQ_hat = []
   psiP_mask_data = get_patch_data(psiP, mask)
-  source_index = np.argwhere(psiP_mask_data != 0)
+  source_index = np.argwhere(psiP_mask_data != 255)
   source_mask = [source_index[:, 0],source_index[:,1]]
-  for i in range(size, w-size-1):
-    for j in range(size, h-size-1):
-      psiQ = get_patch_q((i, j), mask, window_size)
+  if patch_size[1] %2 != 0:
+    endX = w-xsize-1
+  else:
+    endX = w-xsize
+  if patch_size[0] %2 != 0:
+    endY = h-ysize-1
+  else:
+    endY = h-ysize
+  for i in range(xsize, endX):
+    for j in range(ysize, endY):
+      psiQ = get_patch_q((i, j), mask, patch_size)
       if type(psiQ) == np.ndarray:
         ssd.append(SSD(psiP, psiQ, rgbimage, source_mask))
         psiQ_hat.append(psiQ)
@@ -134,14 +149,14 @@ def best_match_patch(rgbimage, mask, psiP, window_size):
 # Fill the empty pixels in sai P with the value of corresponding pixels in sai q hat.
 def fill_image(RGBimage, mask, psiP, psiQ_hat):
   psiP_mask_data = get_patch_data(psiP, mask)
-  target_index = np.argwhere(psiP_mask_data == 0)
+  target_index = np.argwhere(psiP_mask_data != 0)
   target_mask = [target_index[:, 0],target_index[:,1]]
   channels = RGBimage.shape[2]
   psiP_data = get_patch_data(psiP, RGBimage)
   psiQ_hat_data = get_patch_data(psiQ_hat, RGBimage)
   for i in range(channels):
     psiP_data[:,:,i][target_mask] = psiQ_hat_data[:,:,i][target_mask]
-  psiP_mask_data[target_mask] = 255
+  psiP_mask_data[target_mask] = 0
 
   return RGBimage, mask
 
@@ -153,44 +168,47 @@ def update_confidence(confidence, saiP_hat, P_hat):
   x_2, y_2 = saiP_hat[1]
   for i in range(x_1, x_2 + 1):
       for j in range(y_1, y_2 + 1):
-        if confidence[j,i] ==0:
+        if confidence[j,i] == 0:
           confidence[j,i] = curr
   return confidence
 
 # Inpainting function
-def inpainting(image1, image2, window_size)
-""""
-  @type image1: string
-  @param image1: the name of the orignal image. s.t 'xxx.png'
-  @type image2: string
-  @param image2 the name of the mask image. s.t 'xxx_mask.png'
-  @type window_size: tuple
-  @param window_size: a tuple contains the height and width of the patch window(usually h = w). s.t (x,x)
-  @return: Nothing. The inpainted image will be saved as 'xxx_result.png' under the same directory of this function file
-""""
+# type image1: string
+# param image1: the name of the orignal image. s.t 'xxx.png'
+# type image2: string
+# param image2 the name of the mask image. s.t 'xxx_mask.png'
+# type window_size: tuple
+# param window_size: a tuple contains the height and width of the patch window(usually h = w). s.t (x,x)
+# return: Nothing. The inpainted image will be saved as 'xxx_result.png' under the same directory of this function file
+
+def inpainting(image1, image2, window_size):
   image, RGBimage, mask, confidence = load_image(image1,image2)
   window_size = window_size
-  while(not np.all(mask == 255)):
+  while(not np.all(mask == 0)):
     front_fill = get_front_fill(mask)
     nalba_Ip = compute_gradient(image,mask)
     normal = compute_normal(front_fill,mask)
     ff_priority = []
     for i in range(len(front_fill[0])):
       curr = (front_fill[1][i],front_fill[0][i])
-      confidence, curr_confidence = compute_confidence(confidence,curr,mask,window_size)
+      curr_confidence = compute_confidence(confidence,curr,mask,window_size)
+      confidence[curr[1], curr[0]] = curr_confidence
       curr_data = compute_data(nalba_Ip,normal,curr,i)
       ff_priority.append(compute_priority(curr_confidence,curr_data))
     curr_max = np.argmax(ff_priority)
     curr_idx = (front_fill[1][curr_max],front_fill[0][curr_max])
-    psiP = patch(image, curr_idx, window_size)
-    psiQ_hat = best_match_patch(RGBimage, mask, psiP, window_size)
+    psiP, patch_size = patch(image, curr_idx, window_size)
+    psiQ_hat = best_match_patch(RGBimage, mask, psiP, patch_size)
     RGBimage, mask = fill_image(RGBimage, mask, psiP, psiQ_hat)
     update_confidence(confidence, psiP, curr_idx)
+    # print(ff_priority)
+    plt.imshow(RGBimage)
+    plt.show()
   fig = plt.figure()
   plt.imshow(RGBimage)
   index = image1.find(".")
   image3 = image1[:index]+"_result" + image1[index:]
-  plt.savefig("image3", dpi=fig.dpi)
+  plt.savefig(image3, dpi=fig.dpi)
 
 
 if __name__ == "__main__":
